@@ -17,9 +17,9 @@ namespace RedditBot
             var clientSecret = ConfigurationManager.AppSettings["clientSecret"];
             var username = ConfigurationManager.AppSettings["username"];
             var password = ConfigurationManager.AppSettings["password"];
-            Console.WriteLine(bot.isAuthenticated());
+            Console.WriteLine(bot.IsAuthenticated());
             bot.Authenticate(clientId, clientSecret, username, password);
-            Console.WriteLine(bot.isAuthenticated());
+            Console.WriteLine(bot.IsAuthenticated());
         }
     }
 }

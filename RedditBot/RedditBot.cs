@@ -23,7 +23,7 @@ namespace RedditBot
             _version = version;
         }
 
-        public bool isAuthenticated()
+        public bool IsAuthenticated()
         {
             if (_accessToken.Length == 0)
             {
