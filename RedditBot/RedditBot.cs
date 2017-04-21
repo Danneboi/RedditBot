@@ -28,21 +28,28 @@ namespace RedditBot
     class RedditBot
     {
         private string _name;
-        private string _description;
         private string _version;
         private string _userAgent;
+        private string _redditUsername;
         private string _accessToken = "";
         private DateTime _accessTokenExpirationTime;
-        private TokenBucket _tbucket;
+        private TokenBucket _tbucket = new TokenBucket(60, 60);
+        private static HttpClient _client = new HttpClient();
 
-        public RedditBot(string name, string description, string version, TokenBucket tbucket)
+        /// <summary>
+        /// Constructor.
+        /// </summary>
+        /// <param name="name">Name of the RedditBot</param>
+        /// <param name="version">Bot Version</param>
+        public RedditBot(string name, string version)
         {
             _name = name;
-            _description = description;
             _version = version;
-            _tbucket = tbucket;
         }
-
+        
+        /// <summary>
+        /// Returns time left to access token expiration in seconds.
+        /// </summary>
         public int AccessTokenExpirationInSeconds
         {
             get
@@ -51,6 +58,10 @@ namespace RedditBot
             }
         }
 
+        /// <summary>
+        /// Returns true if user is correctly authenticated via Authenticate(), else false
+        /// </summary>
+        /// <returns></returns>
         public bool IsAuthenticated()
         {
             if (_accessToken.Length == 0 || AccessTokenExpirationInSeconds <= 0)
@@ -60,93 +71,104 @@ namespace RedditBot
             return true;
         }
 
+        /// <summary>
+        /// Authenticate the bot to allow for OAuth requests.
+        /// </summary>
+        /// <param name="clientId">clientId of reddit account</param>
+        /// <param name="clientSecret">clientSecret of reddit account</param>
+        /// <param name="username">The reddit account's username</param>
+        /// <param name="password">The reddit account's password</param>
+        /// <exception cref="OAuthException"></exception>
         public void Authenticate(string clientId, string clientSecret, string username, string password)
         {
-            using (var client = new HttpClient())
+            if (!_tbucket.RequestIsAllowed())
             {
-                var authenticationArray = Encoding.ASCII.GetBytes($"{clientId}:{clientSecret}");
-                var encodedAuthenticationString = Convert.ToBase64String(authenticationArray);
-
-                client.DefaultRequestHeaders.Authorization = new
-                System.Net.Http.Headers.AuthenticationHeaderValue("Basic", encodedAuthenticationString);
-                _userAgent = $"{_name} /v{_version} by {username}";
-                client.DefaultRequestHeaders.Add("User-Agent", _userAgent);
-               
-                var formData = new Dictionary<string, string>
-                {
-                    { "grant_type", "password" },
-                    { "username", username },
-                    { "password", password }
-                };
-                var encodedFormData = new FormUrlEncodedContent(formData);
-
-                var authUrl = "https://www.reddit.com/api/v1/access_token";
-                var response = client.PostAsync(authUrl, encodedFormData).GetAwaiter().GetResult();
-
-                if (response.StatusCode.ToString() == "OK") {
-                    var responseData = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                    var responseToken = JObject.Parse(responseData).SelectToken("access_token");
-                    if (responseToken == null) {
-                        throw new OAuthException("Invalid client information");
-                    }
-                    // Actual Token
-                    _accessToken = responseToken.ToString();
-                    var expirationTimeInSeconds = Int32.Parse(JObject.Parse(responseData).SelectToken("expires_in").ToString());
-                    _accessTokenExpirationTime = DateTime.Now.AddSeconds(expirationTimeInSeconds);
-                }
-
-                /*
-
-                // Base URL: https://oauth.reddit.com/api/v1/
-                var requestUrl = "https://oauth.reddit.com/api/v1/me";
-
-                // Update AuthorizationHeader
-                client.DefaultRequestHeaders.Authorization = new
-                System.Net.Http.Headers.AuthenticationHeaderValue("bearer", _accessToken);
-
-                var meResponse = client.GetStringAsync(requestUrl).GetAwaiter().GetResult();
-                Console.WriteLine(meResponse);
-
-                */
+                _tbucket.Delay(_tbucket.TimeToNextRefillInSeconds());
             }
+            _redditUsername = username;
+            var authenticationArray = Encoding.ASCII.GetBytes($"{clientId}:{clientSecret}");
+            var encodedAuthenticationString = Convert.ToBase64String(authenticationArray);
+
+            _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", encodedAuthenticationString);
+            _userAgent = $"{_name} /v{_version} by {username}";
+            _client.DefaultRequestHeaders.Add("User-Agent", _userAgent);
+               
+            var formData = new Dictionary<string, string>
+            {
+                { "grant_type", "password" },
+                { "username", username },
+                { "password", password }
+            };
+            var encodedFormData = new FormUrlEncodedContent(formData);
+
+            var authUrl = "https://www.reddit.com/api/v1/access_token";
+            var response = _client.PostAsync(authUrl, encodedFormData).GetAwaiter().GetResult();
+            if (response.StatusCode.ToString() == "OK") {
+                var responseData = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                Console.WriteLine(responseData);
+                var responseToken = JObject.Parse(responseData).SelectToken("access_token");
+                if (responseToken == null) {
+                    throw new OAuthException("Invalid client information");
+                }
+                // Actual Token
+                _accessToken = responseToken.ToString();
+                var expirationTimeInSeconds = Int32.Parse(JObject.Parse(responseData).SelectToken("expires_in").ToString());
+                _accessTokenExpirationTime = DateTime.Now.AddSeconds(expirationTimeInSeconds);
+            }
+
+            // Update AuthorizationHeader
+            _client.DefaultRequestHeaders.Authorization = new
+            System.Net.Http.Headers.AuthenticationHeaderValue("bearer", _accessToken);
         }
 
+        /// <summary>
+        /// Returns a JObject containing the first 25 articles in a subreddit.
+        /// </summary>
+        /// <param name="subreddit">The name of the subreddit</param>
+        /// <returns></returns>
         public JObject GetSubredditArticles(string subreddit)
         {
-            using (var client = new HttpClient())
+            if (!_tbucket.RequestIsAllowed())
             {
-                string url = "https://oauth.reddit.com/r/" + subreddit;
-
-                // Update AuthorizationHeader
-                client.DefaultRequestHeaders.Authorization = new
-                System.Net.Http.Headers.AuthenticationHeaderValue("bearer", _accessToken);
-
-                // User-Agent
-                client.DefaultRequestHeaders.Add("User-Agent", _userAgent);
-
-                var response = client.GetStringAsync(url).GetAwaiter().GetResult();
-                return JObject.Parse(response);
+                _tbucket.Delay(_tbucket.TimeToNextRefillInSeconds());
             }
+            else
+            {
+                Console.WriteLine("Request sent: getSubredditArticles");
+            }
+            string url = "https://oauth.reddit.com/r/" + subreddit;
+
+            var response = _client.GetStringAsync(url).GetAwaiter().GetResult();
+            return JObject.Parse(response);
         }
 
+        /// <summary>
+        /// Returns a JArray containing article comments in JSON-structure.
+        /// </summary>
+        /// <param name="subreddit">The name of the subreddit</param>
+        /// <param name="articleId">The id of the article</param>
+        /// <returns></returns>
         public JArray GetArticleComments(string subreddit, string articleId)
         {
-            using (var client = new HttpClient())
+            if (!_tbucket.RequestIsAllowed())
             {
-                string url = "https://oauth.reddit.com/r/" + subreddit + "/comments/" + articleId;
-
-                // Update AuthorizationHeader
-                client.DefaultRequestHeaders.Authorization = new
-                System.Net.Http.Headers.AuthenticationHeaderValue("bearer", _accessToken);
-
-                // User-Agent
-                client.DefaultRequestHeaders.Add("User-Agent", _userAgent);
-
-                var response = client.GetStringAsync(url).GetAwaiter().GetResult();
-                return JArray.Parse(response);
+                _tbucket.Delay(_tbucket.TimeToNextRefillInSeconds());
             }
+            else
+            {
+                Console.WriteLine("Request sent: getArticleComments");
+            }
+            string url = "https://oauth.reddit.com/r/" + subreddit + "/comments/" + articleId;
+
+            var response = _client.GetStringAsync(url).GetAwaiter().GetResult();
+            return JArray.Parse(response);
         }
 
+        /// <summary>
+        /// Returns true, if a comment in a replytree is written by the reddit account.
+        /// </summary>
+        /// <param name="comments">A JSON-list of comments</param>
+        /// <returns></returns>
         public bool IsRepliedByBot(JToken comments)
         {
             if (comments.ToString() == "")
@@ -156,9 +178,14 @@ namespace RedditBot
             var items = comments["data"]["children"];
             foreach (var c in items)
             {
-                var body = c["data"]["body"].ToString();
+                var kind = c["kind"].ToString();
+                if (kind == "more")
+                {
+                    return true;
+                }
+
                 var author = c["data"]["author"].ToString();
-                if (author == "botboi")
+                if (author == _redditUsername)
                 {
                     return true;
                 }
@@ -166,118 +193,102 @@ namespace RedditBot
             return false;
         }
 
-        public void SearchCommentsAndReplies(JToken comments)
+        /// <summary>
+        /// Searches comments and replies for a specified string. If the specified string is found, the comment is replied.
+        /// </summary>
+        /// <param name="comments">A JSON-list of comments</param>
+        /// <param name="searchStrings">A List of strings containing words to search for</param>
+        public void SearchCommentsAndReplies(JToken comments, List<string> searchStrings)
         {
             var items = comments["data"]["children"];
             foreach (var c in items)
             {
+
                 if (c["kind"].ToString() == "more")
                 {
+                    //Console.WriteLine("Is more");
                     return;
                 }
                 var text = c["data"]["body"].ToString();
                 var author = c["data"]["author"].ToString();
-                if (author != "botboi")
+                //Console.WriteLine($"{text}, {author}");
+
+                if (author != _redditUsername)
                 {
-                    if (text.Contains("Dexter") || text.Contains("dexter"))
-                    {
-                        if (!_tbucket.RequestIsAllowed(1))
+                    foreach (var word in searchStrings) {
+                        if (text.Contains(word))
                         {
-                            Console.WriteLine("Request not allowed");
-                        }
-                        else
-                        {
+                            //Console.WriteLine("Contains Dexter");
                             var replies = c["data"]["replies"];
+                            //Console.WriteLine(replies);
                             if (!IsRepliedByBot(replies))
                             {
-                                ReplyToComment(c["data"]["name"].ToString(), "You said Dexter!");
-                                Console.WriteLine("Request sent: replied");
+                                //Console.WriteLine("Is not replied by bot");
+                                ReplyToComment(c["data"]["name"].ToString(), "You said Dexter! // Nasir");
                             }
-
+                            break;
                         }
                     }
                 }
                 if (c["data"]["replies"].ToString() != "")
                 {
-                    SearchCommentsAndReplies(c["data"]["replies"]);
+                    //Console.WriteLine("Replies empty");
+                    SearchCommentsAndReplies(c["data"]["replies"], searchStrings);
                 }
             }
         }
 
+        /// <summary>
+        /// Replies with a specified text to an article comment.
+        /// </summary>
+        /// <param name="commentId">The id of the comment</param>
+        /// <param name="text">The text of the reply</param>
         public void ReplyToComment(string commentId, string text)
         {
-            using (var client = new HttpClient())
+            if (!_tbucket.RequestIsAllowed())
             {
-                string url = "https://oauth.reddit.com/api/comment";
-
-                var formData = new Dictionary<string, string>
-                {
-                    { "api_type", "json" },
-                    { "text", text },
-                    { "thing_id", commentId }
-                };
-                var encodedFormData = new FormUrlEncodedContent(formData);
-
-                // Update AuthorizationHeader
-                client.DefaultRequestHeaders.Authorization = new
-                System.Net.Http.Headers.AuthenticationHeaderValue("bearer", _accessToken);
-
-                // User-Agent
-                client.DefaultRequestHeaders.Add("User-Agent", _userAgent);
-
-                var response = client.PostAsync(url, encodedFormData).GetAwaiter().GetResult();
-                var responseData = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                Console.WriteLine(response.StatusCode.ToString());
-                //Console.WriteLine(responseData);
+                _tbucket.Delay(_tbucket.TimeToNextRefillInSeconds());
             }
+            else
+            {
+                Console.WriteLine("Request sent: Replied to comment");
+            }
+
+            string url = "https://oauth.reddit.com/api/comment";
+            var formData = new Dictionary<string, string>
+            {
+                { "api_type", "json" },
+                { "text", text },
+                { "thing_id", commentId }
+            };
+            var encodedFormData = new FormUrlEncodedContent(formData);
+
+            var response = _client.PostAsync(url, encodedFormData).GetAwaiter().GetResult();
+            //Console.WriteLine(response.IsSuccessStatusCode);
+            //Console.WriteLine("Comment replied");
         }
 
-        public void Hello()
+        /// <summary>
+        /// Runs the bot, searches a subreddit and its articles' comments for specified strings.
+        /// Replies to the comment if a matched string is found.
+        /// </summary>
+        public void RunAndReply()
         {
-            var articles = GetSubredditArticles("sandboxtest")["data"]["children"];
-            Console.WriteLine("Request sent: getSubbredditArticles");
+            List<string> words = new List<string> { "Dexter", "dexter", "DEXTER" };
+            var articles = GetSubredditArticles("BotBois")["data"]["children"];
             foreach (var article in articles)
             {
                 var id = article["data"]["id"].ToString();
-                var comments = GetArticleComments("sandboxtest", id);
-                Console.WriteLine("Request sent: getArticleComments");
+                var comments = GetArticleComments("BotBois", id);
                 var items = comments[1];
-                SearchCommentsAndReplies(items);
+                SearchCommentsAndReplies(items, words);
+                System.Threading.Thread.Sleep(1000);
             }
-            /*var id = "61v0tm";
+
+            /*var id = "661zvu";
             var comments = GetArticleComments("sandboxtest", id);
             var items = comments[1];
             SearchCommentsAndReplies(items);*/
-        }
-
-        public void CommentHello()
-        {
-            if (!_tbucket.RequestIsAllowed(3))
-            {
-                Console.WriteLine("Request not allowed");
-                return;
-            }
-
-            var subreddits = GetSubredditArticles("sandboxtest").SelectToken("data").SelectToken("children");
-
-            foreach (var article in subreddits)
-            {
-                var id = article.SelectToken("data.id").ToString();
-                var comments = GetArticleComments("sandboxtest", id);
-                var items = comments[1]["data"]["children"];
-                foreach (var i in items)
-                {
-                    var linkId = i.SelectToken("data").SelectToken("name").ToString();
-                    var body = i.SelectToken("data").SelectToken("body").ToString();
-                    if (body.Contains("Dexter") || body.Contains("dexter"))
-                    {
-                        if (i.SelectToken("data").SelectToken("replies").ToString().Length == 0)
-                        {
-                            ReplyToComment(linkId, "Hello Dexter aka Morot!");
-                        }
-                    }
-                }
-            }
         }
     }
 }

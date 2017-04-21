@@ -17,14 +17,15 @@ namespace RedditBot
             var clientSecret = ConfigurationManager.AppSettings["clientSecret"];
             var username = ConfigurationManager.AppSettings["username"];
             var password = ConfigurationManager.AppSettings["password"];
-            TokenBucket tbucket = new TokenBucket(60, 60);
-            RedditBot bot = new RedditBot("UltimateBottyBoi", "A very good bot", "1.0", tbucket);
+            RedditBot bot = new RedditBot("UltimateBottyBoi", "1.0");
 
             bot.Authenticate(clientId, clientSecret, username, password);
             Console.WriteLine($"Is authenticated: {bot.IsAuthenticated()}");
-
-            bot.Hello();
-            Console.ReadKey();
+            while (true)
+            {
+                bot.RunAndReply();
+            }
+            //Console.ReadKey();
         }
     }
 }
