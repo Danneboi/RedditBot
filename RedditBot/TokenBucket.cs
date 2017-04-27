@@ -6,15 +6,25 @@ using System.Threading.Tasks;
 
 namespace RedditBot
 {
-    class CapacitySizeException : Exception
+    /// <summary>
+    /// Exception is thrown if capacity size is below 1.
+    /// </summary>
+    public class CapacitySizeException : Exception
     {
+        /// <summary>
+        /// Constructur
+        /// </summary>
+        /// <param name="message">Message to display with exception</param>
         public CapacitySizeException(string message) : base(message)
         {
 
         }
     }
 
-    class IntervalSizeException : Exception
+    /// <summary>
+    /// Exception is thrown if interval is below 1.
+    /// </summary>
+    public class IntervalSizeException : Exception
     {
         public IntervalSizeException(string message) : base(message)
         {
@@ -22,7 +32,7 @@ namespace RedditBot
         }
     }
 
-    class TokenBucket
+    public class TokenBucket
     {
         private int _currentTokens, _capacity, _interval;
         private DateTime _lastRefreshed;
@@ -52,7 +62,7 @@ namespace RedditBot
         }
 
         /// <summary>
-        /// Returns time to next refill in seconds.
+        /// Returns time to next refill in seconds. If time has been passed, the method returns 0.
         /// </summary>
         /// <returns>A double, time in seconds</returns>
         public int TimeToNextRefillInSeconds()
@@ -62,7 +72,7 @@ namespace RedditBot
             {
                 return 0;
             }
-            return (int) time;
+            return (int)(Math.Ceiling(time));
         }
     
         /// <summary>
@@ -72,7 +82,7 @@ namespace RedditBot
         public void Delay(int delayInSeconds)
         {
             Console.WriteLine($"Delaying for {delayInSeconds} seconds");
-            System.Threading.Thread.Sleep((int)(delayInSeconds * 1000));
+            System.Threading.Thread.Sleep(delayInSeconds * 1000);
         }
 
         /// <summary>
@@ -97,7 +107,7 @@ namespace RedditBot
         /// If interval has been passed, the bucket is refilled with the initial capacity.
         /// </summary>
         /// <returns>bool, true if bucket is refilled, else false.</returns>
-        public bool Refill()
+        private bool Refill()
         {
             if (DateTime.Now.Subtract(_lastRefreshed).TotalSeconds >= _interval)
             {

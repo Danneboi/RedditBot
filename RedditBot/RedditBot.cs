@@ -9,7 +9,10 @@ using Newtonsoft.Json.Linq;
 
 namespace RedditBot
 {
-    class OAuthException : Exception
+    /// <summary>
+    /// Exception is thrown if client information in Authenticate is invalid
+    /// </summary>
+    public class OAuthException : Exception
     {
         public OAuthException(string message) : base(message)
         {
@@ -17,15 +20,7 @@ namespace RedditBot
         }
     }
 
-    class AccessTokenExpiredException : Exception
-    {
-        public AccessTokenExpiredException(string message) : base(message)
-        {
-
-        }
-    }
-
-    class RedditBot
+    public class RedditBot
     {
         private string _name;
         private string _version;
@@ -50,7 +45,7 @@ namespace RedditBot
         /// <summary>
         /// Returns time left to access token expiration in seconds.
         /// </summary>
-        public int AccessTokenExpirationInSeconds
+        private int AccessTokenExpirationInSeconds
         {
             get
             {
@@ -114,11 +109,11 @@ namespace RedditBot
                 _accessToken = responseToken.ToString();
                 var expirationTimeInSeconds = Int32.Parse(JObject.Parse(responseData).SelectToken("expires_in").ToString());
                 _accessTokenExpirationTime = DateTime.Now.AddSeconds(expirationTimeInSeconds);
-            }
 
-            // Update AuthorizationHeader
-            _client.DefaultRequestHeaders.Authorization = new
-            System.Net.Http.Headers.AuthenticationHeaderValue("bearer", _accessToken);
+                // Update AuthorizationHeader
+                _client.DefaultRequestHeaders.Authorization = new
+                System.Net.Http.Headers.AuthenticationHeaderValue("bearer", _accessToken);
+            }
         }
 
         /// <summary>
@@ -126,7 +121,7 @@ namespace RedditBot
         /// </summary>
         /// <param name="subreddit">The name of the subreddit</param>
         /// <returns></returns>
-        public JObject GetSubredditArticles(string subreddit)
+        private JObject GetSubredditArticles(string subreddit)
         {
             if (!_tbucket.RequestIsAllowed())
             {
@@ -148,7 +143,7 @@ namespace RedditBot
         /// <param name="subreddit">The name of the subreddit</param>
         /// <param name="articleId">The id of the article</param>
         /// <returns></returns>
-        public JArray GetArticleComments(string subreddit, string articleId)
+        private JArray GetArticleComments(string subreddit, string articleId)
         {
             if (!_tbucket.RequestIsAllowed())
             {
@@ -165,11 +160,11 @@ namespace RedditBot
         }
 
         /// <summary>
-        /// Returns true, if a comment in a replytree is written by the reddit account.
+        /// Returns true if a comment in a replytree is written by the reddit account, else false.
         /// </summary>
         /// <param name="comments">A JSON-list of comments</param>
         /// <returns></returns>
-        public bool IsRepliedByBot(JToken comments)
+        private bool IsRepliedByBot(JToken comments)
         {
             if (comments.ToString() == "")
             {
@@ -194,11 +189,11 @@ namespace RedditBot
         }
 
         /// <summary>
-        /// Searches comments and replies for a specified string. If the specified string is found, the comment is replied.
+        /// Searches comments and replies for specified strings. If a specified string is found, the comment is replied.
         /// </summary>
         /// <param name="comments">A JSON-list of comments</param>
         /// <param name="searchStrings">A List of strings containing words to search for</param>
-        public void SearchCommentsAndReplies(JToken comments, List<string> searchStrings)
+        private void SearchCommentsAndReplies(JToken comments, List<string> searchStrings)
         {
             var items = comments["data"]["children"];
             foreach (var c in items)
@@ -243,7 +238,7 @@ namespace RedditBot
         /// </summary>
         /// <param name="commentId">The id of the comment</param>
         /// <param name="text">The text of the reply</param>
-        public void ReplyToComment(string commentId, string text)
+        private void ReplyToComment(string commentId, string text)
         {
             if (!_tbucket.RequestIsAllowed())
             {
@@ -275,13 +270,18 @@ namespace RedditBot
         public void RunAndReply()
         {
             List<string> words = new List<string> { "Dexter", "dexter", "DEXTER" };
-            var articles = GetSubredditArticles("BotBois")["data"]["children"];
+            //var articles = GetSubredditArticles("BotBois")["data"]["children"];
+            ArticleHandler ah = new ArticleHandler(_tbucket, _client);
+            CommentHandler ch = new CommentHandler(_tbucket, _client);
+            var articles = ah.Fetch("BotBois")["data"]["children"];
             foreach (var article in articles)
             {
                 var id = article["data"]["id"].ToString();
-                var comments = GetArticleComments("BotBois", id);
+                //var comments = GetArticleComments("BotBois", id);
+                var comments = ch.Fetch("BotBois", id);
                 var items = comments[1];
-                SearchCommentsAndReplies(items, words);
+                //SearchCommentsAndReplies(items, words);
+                ch.SearchCommentsAndReplies(items, _redditUsername, words);
                 System.Threading.Thread.Sleep(1000);
             }
 
@@ -292,3 +292,4 @@ namespace RedditBot
         }
     }
 }
+
